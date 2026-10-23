@@ -5,7 +5,7 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +23,13 @@ jobs:
             exit 1
           fi
           echo "PROJECT_DIR=$(dirname "$SPEC")" >> "$GITHUB_ENV"
+
+      - name: Force safe build settings
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          sed -i '/^android\.ndk *=/d;/^android\.archs *=/d;/^android\.ndk_api *=/d' buildozer.spec
+          sed -i '/^\[app\]/a android.ndk = 25b\nandroid.ndk_api = 24\nandroid.archs = arm64-v8a' buildozer.spec
+          grep -n "android\." buildozer.spec
 
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
@@ -53,8 +60,19 @@ jobs:
             "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
       - name: Build APK
+        shell: bash
         working-directory: ${{ env.PROJECT_DIR }}
-        run: buildozer -v android debug
+        run: |
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee /tmp/build.log
+
+      - name: Show error summary
+        if: failure()
+        run: |
+          echo "=== ERROR LINES ==="
+          grep -n -i -E "error|failed|fatal|exception" /tmp/build.log | tail -n 25
+          echo "=== LAST 80 LINES ==="
+          tail -n 80 /tmp/build.log
 
       - uses: actions/upload-artifact@v4
         with:
